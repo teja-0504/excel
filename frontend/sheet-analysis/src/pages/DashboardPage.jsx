@@ -1,77 +1,224 @@
-import React from 'react';
-import { useSelector } from 'react-redux';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useDispatch, useSelector } from 'react-redux';
+import { fetchUserCharts } from '../store/chartSlice';
+import { uploadFile, fetchUploadHistory } from '../store/uploadSlice';
+import Chart from 'chart.js/auto';
+import UploadHistory from '../components/UploadHistory';
+import FilePreviewTable from '../components/FilePreviewTable';
+import * as XLSX from 'xlsx';
+import { useNavigate } from 'react-router-dom';
+
+const colorPalette = [
+  'rgba(255, 99, 132, 0.6)',
+  'rgba(54, 162, 235, 0.6)',
+  'rgba(255, 206, 86, 0.6)',
+  'rgba(75, 192, 192, 0.6)',
+  'rgba(153, 102, 255, 0.6)',
+  'rgba(255, 159, 64, 0.6)',
+  'rgba(199, 199, 199, 0.6)',
+  'rgba(83, 102, 255, 0.6)',
+  'rgba(255, 99, 255, 0.6)',
+  'rgba(99, 255, 132, 0.6)',
+];
+
+const borderColorPalette = [
+  'rgba(255, 99, 132, 1)',
+  'rgba(54, 162, 235, 1)',
+  'rgba(255, 206, 86, 1)',
+  'rgba(75, 192, 192, 1)',
+  'rgba(153, 102, 255, 1)',
+  'rgba(255, 159, 64, 1)',
+  'rgba(199, 199, 199, 1)',
+  'rgba(83, 102, 255, 1)',
+  'rgba(255, 99, 255, 1)',
+  'rgba(99, 255, 132, 1)',
+];
+
+const ChartCard = ({ chart }) => {
+  const chartRef = React.useRef(null);
+  useEffect(() => {
+    if (!chartRef.current) return;
+    const ctx = chartRef.current.getContext('2d');
+
+    // Generate colors for each data point
+    const dataLength = chart.data.length;
+    const backgroundColors = [];
+    const borderColors = [];
+    for (let i = 0; i < dataLength; i++) {
+      backgroundColors.push(colorPalette[i % colorPalette.length]);
+      borderColors.push(borderColorPalette[i % borderColorPalette.length]);
+    }
+
+    const chartInstance = new Chart(ctx, {
+      type: chart.chartType === '3d-column' || chart.chartType === '3d-bar' ? 'bar' : chart.chartType,
+      data: {
+        labels: chart.data.map((d) => d[chart.xAxis]),
+        datasets: [
+          {
+            label: chart.yAxis,
+            data: chart.data.map((d) => d[chart.yAxis]),
+            backgroundColor:
+              chart.chartType === 'pie' || chart.chartType === 'doughnut'
+                ? backgroundColors
+                : chart.chartType === 'bar' || chart.chartType === '3d-column' || chart.chartType === '3d-bar'
+                ? backgroundColors
+                : 'rgba(54, 162, 235, 0.6)',
+            borderColor:
+              chart.chartType === 'pie' || chart.chartType === 'doughnut'
+                ? borderColors
+                : chart.chartType === 'bar' || chart.chartType === '3d-column' || chart.chartType === '3d-bar'
+                ? borderColors
+                : 'rgba(54, 162, 235, 1)',
+            borderWidth: 1,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: true },
+          title: { display: true, text: chart.title },
+        },
+      },
+    });
+    return () => {
+      chartInstance.destroy();
+    };
+  }, [chart]);
+
+  return (
+    <div className="bg-white rounded shadow p-4">
+      <canvas ref={chartRef} />
+    </div>
+  );
+};
+
+const MetricCard = ({ title, value }) => (
+  <div className="bg-white rounded shadow p-4 flex flex-col items-center justify-center">
+    <h3 className="text-lg font-semibold">{title}</h3>
+    <p className="text-2xl font-bold">{value}</p>
+  </div>
+);
 
 const DashboardPage = () => {
+  const dispatch = useDispatch();
+  const navigate = useNavigate();
+  const charts = useSelector((state) => state.chart?.charts || []);
+  const uploads = useSelector((state) => state.upload?.uploads || []);
+  const loading = useSelector((state) => state.upload?.loading);
+  const error = useSelector((state) => state.upload?.error);
+  const auth = useSelector((state) => state.auth);
+  const adminThemeMode = useSelector((state) => state.adminSettings?.settings?.themeMode);
+  const userThemeMode = useSelector((state) => state.userSettings?.settings?.themeMode);
   const user = useSelector((state) => state.auth.user);
+  const themeMode = user && user.role === 'admin' ? adminThemeMode : (userThemeMode || 'white');
 
-  if (user && user.role === 'admin') {
-    // Admin view: show users' upload data/time list only
-    return (
-      <div className="p-6 max-w-5xl mx-auto">
-        <h1 className="text-3xl font-bold mb-6">Admin Dashboard</h1>
-        <p className="mb-4">You can view all users' upload data and timestamps here.</p>
-        <Link to="/history" className="text-indigo-600 underline">
-          View All Uploads
-        </Link>
-      </div>
-    );
-  }
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [filePreview, setFilePreview] = useState(null);
+  const [fileDataPreview, setFileDataPreview] = useState(null);
 
-  // User view: full dashboard
+  useEffect(() => {
+    if (!auth.token) {
+      navigate('/login');
+      return;
+    }
+    dispatch(fetchUserCharts());
+    dispatch(fetchUploadHistory());
+  }, [dispatch, auth.token, navigate]);
+
+  const totalUploads = uploads.length;
+  const totalCharts = charts.length;
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    setSelectedFile(file);
+    if (file) {
+      setFilePreview({
+        name: file.name,
+        size: (file.size / 1024).toFixed(2) + ' KB',
+      });
+
+      // Read file content for preview
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+        // Convert array of arrays to array of objects for table preview
+        if (data.length > 1) {
+          const headers = data[0];
+          const rows = data.slice(1);
+          const jsonData = rows.map((row) => {
+            const obj = {};
+            headers.forEach((header, i) => {
+              obj[header] = row[i];
+            });
+            return obj;
+          });
+          setFileDataPreview(jsonData.slice(0, 10)); // preview first 10 rows
+        } else {
+          setFileDataPreview([]);
+        }
+      };
+      reader.readAsBinaryString(file);
+    } else {
+      setFilePreview(null);
+      setFileDataPreview(null);
+    }
+  };
+
+  const handleUpload = () => {
+    if (!selectedFile) return;
+    const formData = new FormData();
+    formData.append('file', selectedFile);
+    dispatch(uploadFile(formData)).then((action) => {
+      if (uploadFile.fulfilled.match(action)) {
+        // Keep the preview after upload
+        setSelectedFile(null);
+        // Do not clear preview or file data preview to keep showing uploaded file
+        // setFilePreview(null);
+        // setFileDataPreview(null);
+        // Remove redirect to charts page
+        // navigate('/charts');
+      }
+    });
+  };
+
   return (
-    <div className="flex min-h-screen">
-      {/* Sidebar */}
-      <aside className="w-64 bg-gray-800 text-white p-6 flex flex-col">
-        <h2 className="text-2xl font-bold mb-8">Menu</h2>
-        <nav className="flex flex-col space-y-4">
-          <Link to="/dashboard" className="hover:text-indigo-400">
-            Dashboard
-          </Link>
-          <Link to="/upload" className="hover:text-indigo-400">
-            Upload Excel File
-          </Link>
-          <Link to="/history" className="hover:text-indigo-400">
-            My History
-          </Link>
-          <Link to="/chart" className="hover:text-indigo-400">
-            My Charts
-          </Link>
-          <Link to="/ai-insights" className="hover:text-indigo-400">
-            AI Insights
-          </Link>
-          <Link to="/login" className="hover:text-indigo-400 mt-auto">
-            Logout
-          </Link>
-        </nav>
-      </aside>
+    <div className={`space-y-6 ${themeMode === 'dark' ? 'bg-gray-900 text-white' : themeMode === 'creative' ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white' : 'bg-white text-black'}`}>
+      <h1 className="text-3xl font-bold mb-4">Dashboard</h1>
 
-      {/* Main Content */}
-      <main className="flex-1 p-8 bg-gray-100">
-        <h1 className="text-3xl font-bold mb-6">Welcome, {user?.username || 'User'}</h1>
-
-        <section className="mb-8">
-          <h2 className="text-xl font-semibold mb-4">Upload Excel File</h2>
-          <p>
-            Go to the <Link to="/upload" className="text-indigo-600 underline">Upload Page</Link> to upload Excel files and generate AI summaries and charts.
-          </p>
-        </section>
-
-        <section className="mb-8">
-          <h2 className="text-xl font-semibold mb-4">Quick Links</h2>
-          <div className="grid grid-cols-2 gap-4 max-w-md">
-            <Link to="/history" className="p-4 bg-white rounded shadow hover:bg-indigo-50">
-              📁 My History
-            </Link>
-            <Link to="/chart" className="p-4 bg-white rounded shadow hover:bg-indigo-50">
-              🎯 My Charts
-            </Link>
-            <Link to="/ai-insights" className="p-4 bg-white rounded shadow hover:bg-indigo-50">
-              🧠 AI Insights
-            </Link>
+      <div className={`mt-8 p-4 rounded shadow ${themeMode === 'dark' ? 'bg-gray-800 text-white' : themeMode === 'creative' ? 'bg-purple-700 bg-opacity-80 text-white' : 'bg-white text-black'}`}>
+        <h2 className="text-2xl font-semibold mb-4">Upload Excel File</h2>
+        <input
+          type="file"
+          accept=".xlsx,.xls"
+          onChange={handleFileChange}
+          className="mb-4"
+        />
+        {filePreview && (
+          <div className={`mb-4 p-2 border rounded ${themeMode === 'dark' ? 'bg-gray-700 border-gray-600 text-white' : themeMode === 'creative' ? 'bg-purple-600 bg-opacity-70 border-purple-500 text-white' : 'bg-gray-50 border-gray-300 text-black'}`}>
+            <p><strong>File Name:</strong> {filePreview.name}</p>
+            <p><strong>File Size:</strong> {filePreview.size}</p>
           </div>
-        </section>
-      </main>
+        )}
+      {fileDataPreview && <FilePreviewTable data={fileDataPreview} themeMode={themeMode} />}
+      <button
+        onClick={handleUpload}
+        disabled={!selectedFile || loading}
+        className={`px-4 py-2 rounded text-white ${!selectedFile || loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+      >
+        {loading ? 'Uploading...' : 'Upload'}
+      </button>
+      {error && <p className="text-red-600 mt-2">{error}</p>}
+    </div>
+    {/* Optionally, render charts here if needed */}
+    <div className="mt-6">
+      {/* Removed Your Charts section as per user request */}
+      <UploadHistory uploads={uploads} />
+    </div>
     </div>
   );
 };

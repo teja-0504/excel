@@ -1,7 +1,7 @@
 import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/upload';
+const API_URL = '/api/upload';
 
 const initialState = {
   uploads: [],
@@ -23,6 +23,9 @@ export const uploadFile = createAsyncThunk(
       });
       return response.data.upload;
     } catch (err) {
+      if (err.response?.data?.message?.includes('OpenAI API quota exceeded')) {
+        return rejectWithValue('Upload failed due to API quota limits.');
+      }
       return rejectWithValue(err.response?.data?.message || 'Upload failed');
     }
   }
@@ -42,6 +45,42 @@ export const fetchUploadHistory = createAsyncThunk(
       return response.data;
     } catch (err) {
       return rejectWithValue(err.response?.data?.message || 'Fetch failed');
+    }
+  }
+);
+
+// Async thunk for clearing upload history
+export const clearUploadHistory = createAsyncThunk(
+  'upload/clearUploadHistory',
+  async (_, { getState, rejectWithValue }) => {
+    try {
+      const { auth } = getState();
+      const response = await axios.delete(`${API_URL}/history`, {
+        headers: {
+          Authorization: `Bearer ${auth.token}`,
+        },
+      });
+      return response.data;
+    } catch (err) {
+      return rejectWithValue(err.response?.data?.message || 'Clear failed');
+    }
+  }
+);
+
+// Async thunk for deleting an upload by ID
+export const deleteUpload = createAsyncThunk(
+  'upload/deleteUpload',
+  async (uploadId, { getState, rejectWithValue }) => {
+    try {
+      const { auth } = getState();
+      await axios.delete(`${API_URL}/${uploadId}`, {
+        headers: {
+          Authorization: `Bearer ${auth.token}`,
+        },
+      });
+      return uploadId;
+    } catch (err) {
+      return rejectWithValue(err.response?.data?.message || 'Delete upload failed');
     }
   }
 );
@@ -73,6 +112,30 @@ const uploadSlice = createSlice({
         state.uploads = action.payload;
       })
       .addCase(fetchUploadHistory.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      .addCase(clearUploadHistory.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(clearUploadHistory.fulfilled, (state) => {
+        state.loading = false;
+        state.uploads = [];
+      })
+      .addCase(clearUploadHistory.rejected, (state, action) => {
+        state.loading = false;
+        state.error = action.payload;
+      })
+      .addCase(deleteUpload.pending, (state) => {
+        state.loading = true;
+        state.error = null;
+      })
+      .addCase(deleteUpload.fulfilled, (state, action) => {
+        state.loading = false;
+        state.uploads = state.uploads.filter(upload => upload._id !== action.payload);
+      })
+      .addCase(deleteUpload.rejected, (state, action) => {
         state.loading = false;
         state.error = action.payload;
       });

@@ -11,9 +11,43 @@ export default function RegisterForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('user'); // default role user
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+
+  const validateEmail = (email) => {
+    // Gmail address ending with .com and may include digits 0-9
+    const regex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
+    return regex.test(email);
+  };
+
+  const validatePassword = (password) => {
+    // Password must contain uppercase, lowercase, and either @ or .
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasSpecialChar = /[@.]/.test(password);
+    return hasUpperCase && hasLowerCase && hasSpecialChar;
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    let valid = true;
+
+    if (!validateEmail(email)) {
+      setEmailError('Email must be a valid Gmail address ending with .com');
+      valid = false;
+    } else {
+      setEmailError('');
+    }
+
+    if (!validatePassword(password)) {
+      setPasswordError('Password must contain uppercase, lowercase, and @ or .');
+      valid = false;
+    } else {
+      setPasswordError('');
+    }
+
+    if (!valid) return;
+
     dispatch(registerUser({ username, email, password, role })).then((res) => {
       if (!res.error) {
         // After successful registration, redirect to login page
@@ -45,6 +79,7 @@ export default function RegisterForm() {
           onChange={(e) => setEmail(e.target.value)}
           required
         />
+        {emailError && <p className="text-red-600 mt-1">{emailError}</p>}
       </label>
       <label className="block mb-4">
         Password
@@ -55,6 +90,7 @@ export default function RegisterForm() {
           onChange={(e) => setPassword(e.target.value)}
           required
         />
+        {passwordError && <p className="text-red-600 mt-1">{passwordError}</p>}
       </label>
       <label className="block mb-6">
         Role

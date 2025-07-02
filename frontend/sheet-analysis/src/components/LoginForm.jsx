@@ -9,9 +9,44 @@ export default function LoginForm() {
   const { loading, error, user } = useSelector((state) => state.auth);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+
+  const validateEmail = (email) => {
+    // Gmail address ending with .com and may include digits 0-9
+    const regex = /^[a-zA-Z0-9._%+-]+@gmail\.com$/;
+    return regex.test(email);
+  };
+
+  const validatePassword = (password) => {
+    // Password must contain uppercase, lowercase, and either @ or . and minimum 5 characters
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
+    const hasSpecialChar = /[@.]/.test(password);
+    const hasMinLength = password.length >= 5;
+    return hasUpperCase && hasLowerCase && hasSpecialChar && hasMinLength;
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    let valid = true;
+
+    if (!validateEmail(email)) {
+      setEmailError('Email must be a valid Gmail address ending with .com');
+      valid = false;
+    } else {
+      setEmailError('');
+    }
+
+    if (!validatePassword(password)) {
+      setPasswordError('Password must contain uppercase, lowercase, and @ or .');
+      valid = false;
+    } else {
+      setPasswordError('');
+    }
+
+    if (!valid) return;
+
     dispatch(loginUser({ email, password }));
   };
 
@@ -41,6 +76,7 @@ export default function LoginForm() {
           onChange={(e) => setEmail(e.target.value)}
           required
         />
+        {emailError && <p className="text-red-600 mt-1">{emailError}</p>}
       </label>
       <label className="block mb-6">
         Password
@@ -52,6 +88,7 @@ export default function LoginForm() {
           onChange={(e) => setPassword(e.target.value)}
           required
         />
+        {passwordError && <p className="text-red-600 mt-1">{passwordError}</p>}
       </label>
       <button
         type="submit"
