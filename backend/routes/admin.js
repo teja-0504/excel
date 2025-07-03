@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticateJWT, authorizeRoles } from '../middleware/auth.js';
-import { getAllUsers, blockUser, deleteUser, getUploadStats, getPlatformStats, getAdminSettings, updateAdminSettings } from '../controllers/adminController.js';
+import { getAllUsers, deleteUser, getUploadStats, getPlatformStats, getAdminSettings, updateAdminSettings, toggleBlockUser } from '../controllers/adminController.js';
 
 const router = express.Router();
 
@@ -10,8 +10,8 @@ router.use(authenticateJWT, authorizeRoles('admin'));
 // Get all users
 router.get('/users', getAllUsers);
 
-// Block a user
-router.post('/users/:userId/block', blockUser);
+// Toggle block/unblock a user
+router.post('/users/:userId/toggle-block', toggleBlockUser);
 
 // Delete a user
 router.delete('/users/:userId', deleteUser);
